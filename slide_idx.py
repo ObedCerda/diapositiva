@@ -2,13 +2,20 @@ import uno
 import time
 import os
 import json
+import subprocess
+import Pyro4
+import threading
 from com.sun.star.beans import PropertyValue
 from com.sun.star.lang import DisposedException
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
-#Script para estar en escucha con libreoffice y conocer que slide es la actual // Usa puertos // Completado
 
+@Pyro4.expose
+def command_exe():
+    command = "ibreoffice --accept='socket,host=localhost,port=2003;urp;' --norestore --nologo --nodefault --impress"
+    subprocess.Popen(command, shell=True)
+@Pyro4.expose
 def connect_to_libreoffice():
     local_ctx = uno.getComponentContext()
     resolver = local_ctx.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local_ctx)
@@ -19,9 +26,8 @@ def connect_to_libreoffice():
 
 
     ###Abrir escucha 
-    ###libreoffice --accept="socket,host=localhost,port=2003;urp;" --norestore --nologo --nodefault --impress
-
-
+    ###libreoffice --accept="socket,host=localhost,port=2002;urp;" --norestore --nologo --nodefault --impress
+@Pyro4.expose
 def get_current_slide_idx(presentation, controller):
     slides = presentation.getDrawPages()
     slide_count = slides.getCount()
@@ -36,7 +42,7 @@ def get_current_slide_idx(presentation, controller):
             return i 
          
     return -1
-
+@Pyro4.expose
 def save_slide_idx(filename, slide_index, data_file=None):
     if data_file is None:
         #home_dir = os.path.expanduser("~")
@@ -60,7 +66,7 @@ def save_slide_idx(filename, slide_index, data_file=None):
     
     except Exception as e:
         print(f"Error al guardar el archivo JSON: {e}")
-
+@Pyro4.expose
 def load_slide_idx(filename, data_file=None):
 
     if data_file is None:
@@ -80,13 +86,10 @@ def load_slide_idx(filename, data_file=None):
         print(f"Error al leer el archivo JSON: {e}")
         return -1
     return data.get(filename, -1)
-    
 
-
-def main():
+def infinite_loop():
     desktop = connect_to_libreoffice()
     #last_slide_idx = -1
- 
     while True:
         try:
             presentation = desktop.getCurrentComponent()
@@ -112,8 +115,26 @@ def main():
         except Exception as e:
             print("Error", e)
         time.sleep(1)
-                         
         
+def main():
+    loop_thread = threading.Thread(target=infinite_loop, daemon=True)
+    loop_thread.start()
+    #last_slide_idx = -1
+    daemon = Pyro4.Daemon(port=37459)
+    uri1 = daemon.register(command_exe)
+    uri2 = daemon.register(connect_to_libreoffice)
+    uri3 = daemon.register(get_current_slide_idx)
+    uri4 = daemon.register(save_slide_idx)
+    uri5 = daemon.register(load_slide_idx)
+
+    print(f"function1 esta disponible en: {uri1}")
+    print(f"function2 esta disponible en: {uri2}")
+    print(f"function3 esta disponible en: {uri3}")
+    print(f"function4 esta disponible en: {uri4}")
+    print(f"function5 esta disponible en: {uri5}")
+
+    daemon.requestLoop()
+    
 
     #current_slide_idx = None
 
@@ -140,8 +161,6 @@ def main():
     #     except Exception as e:
     #         print("Error", e)
     #     time.sleep(1)
-
-
 
 if __name__ == "__main__":
     main()
